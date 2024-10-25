@@ -1,0 +1,5 @@
+Execution Time: 00:00:12.8646877
+Total Valid Rows: 36881
+Total Skipped Rows: 15105
+Timestamp: 25-10-2024 16:27:15
+
