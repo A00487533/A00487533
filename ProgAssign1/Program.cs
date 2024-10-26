@@ -1,73 +1,57 @@
-using System;
-using System.Diagnostics;
+﻿using System;
 using System.IO;
-using System.Text.RegularExpressions;
 using Microsoft.VisualBasic.FileIO;
+using System.Collections.Generic;
+using System.Diagnostics;
 
 namespace Assignment1
 {
-    public class Program
+    public class DirWalker
     {
-        private int skippedRowsCount = 0;     // Counter for rows with missing data
-        private int validRowsCount = 0;       // Counter for valid rows
-        private const string outputFilePath = "Output/Output.csv";
-        private const string logFilePath = "Log/log.txt";  // Log file path
+        private int skippedRowsCount = 0;
+        private int validRowsCount = 0;
 
-        public void DirWalker()
-        {
-            // Ensure Logs directory exists
-            Directory.CreateDirectory(Path.GetDirectoryName(logFilePath));
-            File.WriteAllText(outputFilePath, "FirstName,LastName,StreetNumber,Street,City,Province,PostalCode,Country,PhoneNumber,EmailAddress,Date\n");
-            
-        }
-
-
-        public void WalkAndProcessFiles(string rootPath)
-        {
-            Stopwatch stopwatch = Stopwatch.StartNew();
-
-            TraverseDirectories(rootPath);
-
-            stopwatch.Stop();
-            LogExecutionDetails(stopwatch.Elapsed);
-        }
-
-        private void TraverseDirectories(string path)
+        public void WalkAndProcess(string path, string outputFilePath)
         {
             try
             {
-                foreach (string dir in Directory.GetDirectories(path))
+                string[] directories = Directory.GetDirectories(path);
+
+                if (directories == null) return;
+
+                // Traverse directories
+                foreach (string dirpath in directories)
                 {
-                    TraverseDirectories(dir);  // Recursively traverse directories
+                    WalkAndProcess(dirpath, outputFilePath);
+                    Console.WriteLine("Dir: " + dirpath);
                 }
 
-                foreach (string filePath in Directory.GetFiles(path, "CustomerData*.csv"))
+                // Process files
+                string[] fileList = Directory.GetFiles(path, "CustomerData*.csv");
+                foreach (string filepath in fileList)
                 {
-                    string dateFromPath = ExtractDateFromPath(filePath);
-                    if (dateFromPath != null)
-                    {
-                        ProcessCsvFile(filePath, dateFromPath);
-                    }
+                    Console.WriteLine("Processing File: " + filepath);
+                    ProcessCSV(filepath, outputFilePath, path);
                 }
             }
-            catch (Exception ex)
+            catch (UnauthorizedAccessException e)
             {
-                Console.WriteLine($"Error processing directory {path}: {ex.Message}");
+                Console.WriteLine("Error: Access to directory denied - " + e.Message);
+            }
+            catch (DirectoryNotFoundException e)
+            {
+                Console.WriteLine("Error: Directory not found - " + e.Message);
+            }
+            catch (IOException e)
+            {
+                Console.WriteLine("I/O Error: " + e.Message);
             }
         }
 
-        private string ExtractDateFromPath(string filePath)
+        private void ProcessCSV(string filePath, string outputFilePath, string directoryPath)
         {
-            var match = Regex.Match(filePath, @"(\d{4})[/\\](\d{2})[/\\](\d{2})");
-            if (match.Success)
-            {
-                return $"{match.Groups[1].Value}/{match.Groups[2].Value}/{match.Groups[3].Value}";
-            }
-            return null;
-        }
+            string date = ExtractDateFromPath(directoryPath); // Extract yyyy/mm/dd from directory path
 
-        private void ProcessCsvFile(string filePath, string date)
-        {
             try
             {
                 using (TextFieldParser parser = new TextFieldParser(filePath))
@@ -75,48 +59,165 @@ namespace Assignment1
                     parser.TextFieldType = FieldType.Delimited;
                     parser.SetDelimiters(",");
 
-                    // Skip header line if present
-                    if (!parser.EndOfData) parser.ReadFields();
+                    bool headerSkipped = false;
+                    List<string> validRows = new List<string>();
 
                     while (!parser.EndOfData)
                     {
                         string[] fields = parser.ReadFields();
 
-                        // Ensure all columns have data (10 expected fields)
-                        if (fields.Length == 10 && Array.TrueForAll(fields, field => !string.IsNullOrWhiteSpace(field)))
+                        // Skip the header
+                        if (!headerSkipped)
                         {
-                            File.AppendAllText(outputFilePath, $"{string.Join(",", fields)},{date}\n");
-                            validRowsCount++;
+                            headerSkipped = true;
+                            continue;
                         }
-                        else
+
+                        // Check if the row has any missing fields (incomplete row)
+                        if (fields.Length < 10 || Array.Exists(fields, string.IsNullOrWhiteSpace))
                         {
                             skippedRowsCount++;
+                            continue;
                         }
+
+                        // Append the extracted date (yyyy/mm/dd) as an additional column
+                        string validRow = string.Join(",", fields) + "," + date;
+                        validRows.Add(validRow);
+                        validRowsCount++;
+                    }
+
+                    // Write valid rows to output CSV file
+                    WriteToOutputCSV(outputFilePath, validRows);
+                }
+            }
+            catch (FileNotFoundException e)
+            {
+                Console.WriteLine("Error: File not found - " + e.Message);
+            }
+            catch (UnauthorizedAccessException e)
+            {
+                Console.WriteLine("Error: Access denied - " + e.Message);
+            }
+            catch (IOException e)
+            {
+                Console.WriteLine("I/O Error: " + e.Message);
+            }
+        }
+
+        private void WriteToOutputCSV(string outputFilePath, List<string> validRows)
+        {
+            try
+            {
+                // Append valid rows to Output.csv
+                using (StreamWriter sw = new StreamWriter(outputFilePath, append: true))
+                {
+                    foreach (var row in validRows)
+                    {
+                        sw.WriteLine(row);
                     }
                 }
             }
-            catch (IOException ex)
+            catch (UnauthorizedAccessException e)
             {
-                Console.WriteLine($"Error processing file {filePath}: {ex.Message}");
+                Console.WriteLine("Error: Access denied when writing to output file - " + e.Message);
+            }
+            catch (DirectoryNotFoundException e)
+            {
+                Console.WriteLine("Error: Output directory not found - " + e.Message);
+            }
+            catch (IOException e)
+            {
+                Console.WriteLine("I/O Error while writing to output file: " + e.Message);
             }
         }
 
-        private void LogExecutionDetails(TimeSpan executionTime)
+        private string ExtractDateFromPath(string path)
         {
-            string logMessage = $"Execution Time: {executionTime}\n" +
-                                $"Total Valid Rows: {validRowsCount}\n" +
-                                $"Total Skipped Rows: {skippedRowsCount}\n" +
-                                $"Timestamp: {DateTime.Now}\n\n";
+            try
+            {
+                // Assuming directory path format is <year>/<month>/<date>
+                string[] splitPath = path.Split(Path.DirectorySeparatorChar);
+                string year = splitPath[splitPath.Length - 3];
+                string month = splitPath[splitPath.Length - 2];
+                string day = splitPath[splitPath.Length - 1];
 
-            File.AppendAllText(logFilePath, logMessage);
-            Console.WriteLine("Execution details logged successfully.");
+                return $"{year}/{month}/{day}";
+            }
+            catch (IndexOutOfRangeException e)
+            {
+                Console.WriteLine("Error extracting date from path - " + e.Message);
+                return "Unknown";
+            }
         }
 
-        
-         public static void Main()
-         {
-             Program walker = new Program();
-             walker.WalkAndProcessFiles(@"C:\Users\koush\source\repos\Add\Sample Data\");
-         }
+        private void LogSummary(string logFilePath, TimeSpan executionTime)
+        {
+            try
+            {
+                using (StreamWriter sw = new StreamWriter(logFilePath, append: true))
+                {
+                    sw.WriteLine("Log Entry: " + DateTime.Now);
+                    sw.WriteLine("Total Execution Time: " + executionTime.TotalSeconds + " seconds");
+                    sw.WriteLine("Total Valid Rows: " + validRowsCount);
+                    sw.WriteLine("Total Skipped Rows: " + skippedRowsCount);
+                    sw.WriteLine("--------------------------------------------");
+                }
+            }
+            catch (UnauthorizedAccessException e)
+            {
+                Console.WriteLine("Error: Access denied when writing to log file - " + e.Message);
+            }
+            catch (DirectoryNotFoundException e)
+            {
+                Console.WriteLine("Error: Logs directory not found - " + e.Message);
+            }
+            catch (IOException e)
+            {
+                Console.WriteLine("I/O Error while writing to log file: " + e.Message);
+            }
+        }
+
+        public static void Main(string[] args)
+        {
+            // Start timer for execution time
+            Stopwatch stopwatch = new Stopwatch();
+            stopwatch.Start();
+
+            DirWalker walker = new DirWalker();
+            string rootDirectory = @"C:\Users\koush\source\repos\ConsoleApp1\Sample Data\";
+            string outputFilePath = @"C:\Users\koush\source\repos\ConsoleApp1\Output\Output.csv";
+            string logFilePath = @"C:\Users\koush\source\repos\ConsoleApp1\Log\Log.txt";
+
+            try
+            {
+                // Initialize output file with header
+                using (StreamWriter sw = new StreamWriter(outputFilePath))
+                {
+                    sw.WriteLine("FirstName,LastName,StreetNumber,Street,City,Province,PostalCode,Country,PhoneNumber,EmailAddress,Date");
+                }
+
+                walker.WalkAndProcess(rootDirectory, outputFilePath);
+
+                // Stop the timer and log the total execution time
+                stopwatch.Stop();
+                walker.LogSummary(logFilePath, stopwatch.Elapsed);
+
+                Console.WriteLine("Process completed.");
+                Console.WriteLine("Total skipped rows: " + walker.skippedRowsCount);
+                Console.WriteLine("Total valid rows: " + walker.validRowsCount);
+            }
+            catch (UnauthorizedAccessException e)
+            {
+                Console.WriteLine("Error: Access denied - " + e.Message);
+            }
+            catch (DirectoryNotFoundException e)
+            {
+                Console.WriteLine("Error: Directory not found - " + e.Message);
+            }
+            catch (IOException e)
+            {
+                Console.WriteLine("I/O Error: " + e.Message);
+            }
+        }
     }
 }

@@ -1,5 +1,5 @@
-Execution Time: 00:00:12.8646877
-Total Valid Rows: 36881
-Total Skipped Rows: 15105
-Timestamp: 25-10-2024 16:27:15
-
+Log Entry: 25-10-2024 23:28:57
+Total Execution Time: 121.7616549 seconds
+Total Valid Rows: 201075
+Total Skipped Rows: 81834
+--------------------------------------------
